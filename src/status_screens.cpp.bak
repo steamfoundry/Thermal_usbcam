@@ -1,20 +1,3 @@
-/**
- * @file status_screens.cpp
- *
- * Status screen generation.
- *
- * Screens:
- *   - LOADING
- *   - NO SENSOR
- *   - RANGE ERROR
- *   - LIVE
- *
- * Status screens are pre-rendered and stored
- * as YUY2 images to avoid runtime rendering cost.
- *
- * V3.3 Documentation Release
- */
-
 #include "config.h"
 #include "status_screens.h"
 #include "pico/stdlib.h"

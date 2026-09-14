@@ -1,17 +1,3 @@
-/**
- * @file thermal_pipeline.h
- *
- * Public interface for thermal processing.
- *
- * Provides:
- *   - initialization
- *   - frame acquisition
- *   - frame release
- *   - Core 1 execution entry point
- *
- * V3.3 Documentation Release
- */
-
 #pragma once
 #include <stdint.h>
 #ifdef __cplusplus

@@ -1,11 +1,3 @@
-/**
- * @file status_screens.h
- *
- * Status screen API.
- *
- * V3.3 Documentation Release
- */
-
 #pragma once
 #include <stdint.h>
 typedef enum { SCREEN_LOADING=0, SCREEN_NO_SENSOR, SCREEN_RANGE_ERROR, SCREEN_LIVE } screen_mode_t;

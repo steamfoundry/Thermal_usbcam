@@ -1,10 +1,19 @@
-# MLX90640 RP2040 UVC Thermal Camera V3.1
+# MLX90640 RP2040 UVC Thermal Camera
 
-This firmware targets **Raspberry Pi Pico SDK 2.3.1** and **TinyUSB 0.21.0**, the stable releases verified for this revision on September 8, 2026. CMake rejects Pico SDK versions older than 2.3.1. Use the TinyUSB checkout integrated with that SDK or configure `PICO_TINYUSB_PATH` to a TinyUSB 0.21.0 checkout. Delete and recreate `build/` after changing either dependency.
+## Version 3.3
+
+## Improvements
+- Documentation updates
+
+
+
+This firmware is verified against **Raspberry Pi Pico SDK 2.3.1** and **TinyUSB 0.21.0**. CMake rejects Pico SDK versions older than 2.3.1. Use the TinyUSB checkout integrated with that SDK or configure `PICO_TINYUSB_PATH` to a TinyUSB 0.21.0 checkout. Delete and recreate `build/` after changing either dependency.
 
 ## USB identity and licensing
 ## TEMPORARILY DISABLED 
 The development descriptor uses VID `0x2E8A`, PID `0x0FFF`, product `MLX90640 Thermal Camera`, and the Pico unique board ID as the serial number. Raspberry Pi documents its VID and approved PID allocation process in the [Raspberry Pi USB PID repository](https://github.com/raspberrypi/usb-pid). An unlisted PID is not an allocation. Obtain Raspberry Pi approval before distributing a product with this VID/PID.
+
+---
 
 ## Status screens
 
@@ -12,7 +21,8 @@ The development descriptor uses VID `0x2E8A`, PID `0x0FFF`, product `MLX90640 Th
 - `NO SENSOR`: black text on solid white.
 - `RANGE/ERR`: black text on solid white when fewer than 75 percent of readings are valid.
 
-The current 5x7 font uses scale 2 and a 12-pixel character advance. `RANGE/ERR` is 9 characters, so its width is `9 * 12 - 2 = 106` pixels. It fits within 128 pixels with 11 pixels of margin on each side when centered.
+
+---
 
 ## Build
 
@@ -28,10 +38,78 @@ cmake --build build -j
 
 For a standalone TinyUSB 0.21.0 checkout, add `-DPICO_TINYUSB_PATH=/absolute/path/to/tinyusb` at CMake configure time.
 
-## Correctness changes
+---
 
-Melexis headers use C linkage in C++ files; the HAL includes the official driver declaration; `MLX90640_I2CGeneralReset()` returns `int`; subpage identity uses `MLX90640_GetSubPageNumber()`; strict warnings and a linker map are enabled.
+## Melexis linkage issues changes
 
-## Release qualification
+Melexis headers use C linkage in C++ files; the HAL includes the official driver declaration; `MLX90640_I2CGeneralReset()` returns `int`; subpage identity uses `MLX90640_GetSubPageNumber()`
+Strict warnings and a linker map are enabled.
 
-Compile against the pinned dependencies, inspect `thermal_uvc.map`, and test UVC enumeration, repeated stream start/stop, both subpages, 1 MHz I2C integrity, sensor recovery, invalid-frame recovery, and long-duration buffer ownership on physical hardware.
+---
+
+## Overview
+
+V3.3 is built on the validated V3.2 firmware baseline.
+
+No functional changes were introduced.
+
+This release improves:
+
+- Code readability
+- Architecture notes
+- Long-term maintainability
+
+---
+
+## Core Responsibilities
+
+### Core 0
+
+- TinyUSB
+- UVC Streaming
+- Status Screens
+
+### Core 1
+
+- MLX90640 Acquisition
+- Thermal Processing
+- Frame Generation
+
+---
+
+## Data Flow
+
+MLX90640
+    ↓
+Temperature Frame
+    ↓
+Validation
+    ↓
+Scaling
+    ↓
+Palette Mapping
+    ↓
+Interpolation
+    ↓
+YUY2 Frame
+    ↓
+USB UVC
+
+---
+
+## Hardware Validation status
+
+Inherited from V3.2:
+
+- Firmware Build Success
+- Startup Screen Verified
+- Sensor Error Screen Verified
+- Thermal Streaming Verified
+- Hardware Tested
+
+## TODO
+- Add temperature reading (numeric) to display, not just heat map.
+- Test burn-in to ensure device stays stable
+- Plan for debugging?
+
+---
