@@ -147,6 +147,81 @@ void render(int32_t *s, uint8_t *d) {
       pair(d, y * UVC_W + x, c[0], c[1]);
     }
 }
+/*V3 .4 explicit pixel -
+    validity mask.*Temperature and validity are stored separately,
+    so a valid 0.0 C reading *is no longer confused with a dead
+            pixel.Each word represents one row.*/
+bool pixel_valid(const uint32_t valid_rows[THERMAL_H], int index) {
+  const unsigned row = (unsigned)index / THERMAL_W;
+  const unsigned col = (unsigned)index % THERMAL_W;
+  return (valid_rows[row] & ((uint32_t)1u << col)) != 0;
+}
+
+void mark_pixel_valid(uint32_t valid_rows[THERMAL_H], int index) {
+  const unsigned row = (unsigned)index / THERMAL_W;
+  const unsigned col = (unsigned)index % THERMAL_W;
+  valid_rows[row] |= (uint32_t)1u << col;
+}
+
+// Melexis EEPROM lists contain up to five entries and use 0xFFFF as the
+// terminator. Entries outside the native 0..767 range are ignored defensively.
+bool pixel_in_bad_list(const uint16_t pixels[5], int index) {
+  for (int i = 0; i < 5; ++i) {
+    const uint16_t pixel = pixels[i];
+    if (pixel == UINT16_MAX)
+      break;
+    if (pixel < THERMAL_W * THERMAL_H && pixel == (uint16_t)index)
+      return true;
+  }
+  return false;
+}
+
+bool pixel_factory_bad(const paramsMLX90640 &params, int index) {
+  return pixel_in_bad_list(params.brokenPixels, index) ||
+         pixel_in_bad_list(params.outlierPixels, index);
+}
+
+int32_t median_values(int32_t *values, int count) {
+  for (int i = 1; i < count; ++i) {
+    const int32_t value = values[i];
+    int j = i;
+    while (j > 0 && values[j - 1] > value) {
+      values[j] = values[j - 1];
+      --j;
+    }
+    values[j] = value;
+  }
+  if (count & 1)
+    return values[count / 2];
+  return (int32_t)(((int64_t)values[count / 2 - 1] + values[count / 2]) / 2);
+}
+
+int32_t repair_pixel(const int32_t source_q8[THERMAL_W * THERMAL_H],
+                     const uint32_t valid_rows[THERMAL_H], int index,
+                     int32_t fallback_q8) {
+  const int cx = index % THERMAL_W;
+  const int cy = index / THERMAL_W;
+  for (int radius = 1; radius <= 3; ++radius) {
+    int32_t neighbours[24];
+    int count = 0;
+    for (int dy = -radius; dy <= radius; ++dy) {
+      for (int dx = -radius; dx <= radius; ++dx) {
+        if (dx != -radius && dx != radius && dy != -radius && dy != radius)
+          continue;
+        const int x = cx + dx;
+        const int y = cy + dy;
+        if (x < 0 || x >= THERMAL_W || y < 0 || y >= THERMAL_H)
+          continue;
+        const int candidate = y * THERMAL_W + x;
+        if (pixel_valid(valid_rows, candidate))
+          neighbours[count++] = source_q8[candidate];
+      }
+    }
+    if (count != 0)
+      return median_values(neighbours, count);
+  }
+  return fallback_q8;
+}
 int claim() {
   for (int i = 0; i < 2; i++) {
     uint32_t q = save_and_disable_interrupts();
@@ -200,6 +275,7 @@ extern "C" void thermal_core1_entry() {
         sleep_ms(250);
         break;
       }
+      /* Old dead pixel code
       int lo = MLX_VALID_MAX_T10, hi = MLX_VALID_MIN_T10, valid = 0;
       for (int i = 0; i < 768; i++) {
         int v = isfinite(t[i]) ? (int)lrintf(t[i] * 10) : MLX_VALID_MAX_T10 + 1;
@@ -220,6 +296,31 @@ extern "C" void thermal_core1_entry() {
       for (int i = 0; i < 768; i++)
         if (q8[i] == 0)
           q8[i] = lo * 256 / 10;
+      mk_lut(lo, hi);
+      */
+      // Replaced code
+      int lo = MLX_VALID_MAX_T10, hi = MLX_VALID_MIN_T10, valid = 0;
+      uint32_t valid_rows[THERMAL_H] = {};
+      for (int i = 0; i < THERMAL_W * THERMAL_H; i++) {
+        int v = isfinite(t[i]) ? (int)lrintf(t[i] * 10) : MLX_VALID_MAX_T10 + 1;
+        if (v < MLX_VALID_MIN_T10 || v > MLX_VALID_MAX_T10 ||
+            pixel_factory_bad(prm, i))
+          continue;
+        q8[i] = (int32_t)lrintf(t[i] * 256);
+        mark_pixel_valid(valid_rows, i);
+        lo = v < lo ? v : lo;
+        hi = v > hi ? v : hi;
+        valid++;
+      }
+      if (valid < (THERMAL_W * THERMAL_H * 3) / 4) {
+        errs++;
+        status_screen_set_mode(SCREEN_RANGE_ERROR);
+        continue;
+      }
+      const int32_t fallback_q8 = (int32_t)(((int64_t)(lo + hi) * 256) / 20);
+      for (int i = 0; i < THERMAL_W * THERMAL_H; i++)
+        if (!pixel_valid(valid_rows, i))
+          q8[i] = repair_pixel(q8, valid_rows, i, fallback_q8);
       mk_lut(lo, hi);
       int n = claim();
       if (n < 0) {
