@@ -19,7 +19,7 @@
 #define UVC_W 128
 #define UVC_H 96
 #define UVC_FPS 8
-#define UVC_FRAME_BYTES (UVC_W*UVC_H*2)
+#define UVC_FRAME_BYTES (UVC_W * UVC_H * 2)
 #define MLX_I2C i2c0
 #define MLX_SDA_PIN 16
 #define MLX_SCL_PIN 17
@@ -28,7 +28,7 @@
 #define EMISSIVITY 0.95f
 #define MLX_VALID_MIN_T10 (-400)
 #define MLX_VALID_MAX_T10 3000
-#define TEMP_LUT_SIZE (MLX_VALID_MAX_T10-MLX_VALID_MIN_T10+1)
+#define TEMP_LUT_SIZE (MLX_VALID_MAX_T10 - MLX_VALID_MIN_T10 + 1)
 #define STARTUP_DELAY_MS 10000
 #define LABEL_W 34
 #define LABEL_H 9
