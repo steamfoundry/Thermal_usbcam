@@ -147,22 +147,26 @@ void render(int32_t *s, uint8_t *d) {
       pair(d, y * UVC_W + x, c[0], c[1]);
     }
 }
-/*V3 .4 explicit pixel -
-    validity mask.*Temperature and validity are stored separately,
-    so a valid 0.0 C reading *is no longer confused with a dead
-            pixel.Each word represents one row.*/
+/*V3 .4 explicit pixel - validity mask.
+*Temperature and validity are stored separately,
+* so a valid 0.0 C reading 
+* is no longer confused with a dead
+* pixel.Each word represents one row.*/
+
 bool pixel_valid(const uint32_t valid_rows[THERMAL_H], int index) {
   const unsigned row = (unsigned)index / THERMAL_W;
   const unsigned col = (unsigned)index % THERMAL_W;
   return (valid_rows[row] & ((uint32_t)1u << col)) != 0;
 }
 
+// Mark one native MLX90640 pixel as valid.
 void mark_pixel_valid(uint32_t valid_rows[THERMAL_H], int index) {
   const unsigned row = (unsigned)index / THERMAL_W;
   const unsigned col = (unsigned)index % THERMAL_W;
   valid_rows[row] |= (uint32_t)1u << col;
 }
 
+// Test one of the five-entry deviating-pixel arrays extracted from EEPROM.
 // Melexis EEPROM lists contain up to five entries and use 0xFFFF as the
 // terminator. Entries outside the native 0..767 range are ignored defensively.
 bool pixel_in_bad_list(const uint16_t pixels[5], int index) {
@@ -176,10 +180,29 @@ bool pixel_in_bad_list(const uint16_t pixels[5], int index) {
   return false;
 }
 
+/*
+ * Test both EEPROM-derived lists.
+ *
+ * Factory-bad pixels are never:
+ *
+ *   - marked valid;
+ *   - included in the valid-pixel count;
+ *   - included in the frame minimum or maximum; or
+ *   - used as sources for repairing another pixel.
+ */
+
 bool pixel_factory_bad(const paramsMLX90640 &params, int index) {
   return pixel_in_bad_list(params.brokenPixels, index) ||
          pixel_in_bad_list(params.outlierPixels, index);
 }
+
+/*
+ * Return the median of a small, mutable collection of Q8 temperatures.
+ *
+ * The input array is sorted in place using insertion sort. The array contains
+ * no more than 24 entries, so a general-purpose sorting dependency is not
+ * required.
+ */
 
 int32_t median_values(int32_t *values, int count) {
   for (int i = 1; i < count; ++i) {
@@ -195,6 +218,17 @@ int32_t median_values(int32_t *values, int count) {
     return values[count / 2];
   return (int32_t)(((int64_t)values[count / 2 - 1] + values[count / 2]) / 2);
 }
+
+/*
+ * Replace an invalid native pixel with the median of nearby valid pixels.
+ *
+ * Successive square rings with radii 1, 2, and 3 are examined. Only pixels
+ * represented in valid_rows may contribute.
+ *
+ * The validity mask is not changed after validation. Consequently, a repaired
+ * pixel cannot become the repair source for another invalid pixel in the same
+ * frame.
+ */
 
 int32_t repair_pixel(const int32_t source_q8[THERMAL_W * THERMAL_H],
                      const uint32_t valid_rows[THERMAL_H], int index,
@@ -220,8 +254,16 @@ int32_t repair_pixel(const int32_t source_q8[THERMAL_W * THERMAL_H],
     if (count != 0)
       return median_values(neighbours, count);
   }
+      /*
+     * This path should occur only for an unusually large invalid region.
+     * The caller supplies the midpoint of the valid frame range.
+     */
   return fallback_q8;
 }
+
+/*
+ * Existing frame-buffer claim function remains unchanged.
+ */
 int claim() {
   for (int i = 0; i < 2; i++) {
     uint32_t q = save_and_disable_interrupts();
@@ -298,7 +340,13 @@ extern "C" void thermal_core1_entry() {
           q8[i] = lo * 256 / 10;
       mk_lut(lo, hi);
       */
-      // Replaced code
+                 /*
+             * Every bit starts clear. A bit is set only after the pixel passes:
+             *
+             *   1. finite-value validation;
+             *   2. configured temperature-range validation; and
+             *   3. EEPROM broken/outlier validation.
+             */
       int lo = MLX_VALID_MAX_T10, hi = MLX_VALID_MIN_T10, valid = 0;
       uint32_t valid_rows[THERMAL_H] = {};
       for (int i = 0; i < THERMAL_W * THERMAL_H; i++) {
@@ -312,15 +360,38 @@ extern "C" void thermal_core1_entry() {
         hi = v > hi ? v : hi;
         valid++;
       }
+        /*
+             * Preserve the existing 75 percent validity requirement.
+             */
       if (valid < (THERMAL_W * THERMAL_H * 3) / 4) {
         errs++;
         status_screen_set_mode(SCREEN_RANGE_ERROR);
         continue;
       }
+      /*
+             * Midpoint of lo and hi converted from tenths of a degree to Q8:
+             *
+             *     ((lo + hi) / 2) * (256 / 10)
+             *   =  (lo + hi) * 256 / 20
+             */
       const int32_t fallback_q8 = (int32_t)(((int64_t)(lo + hi) * 256) / 20);
+      /*
+             * Repair every invalid pixel before bilinear interpolation.
+             *
+             * This includes:
+             *
+             *   - non-finite readings;
+             *   - out-of-range readings;
+             *   - EEPROM broken pixels; and
+             *   - EEPROM outlier pixels.
+             */
       for (int i = 0; i < THERMAL_W * THERMAL_H; i++)
         if (!pixel_valid(valid_rows, i))
           q8[i] = repair_pixel(q8, valid_rows, i, fallback_q8);
+  /*
+             * lo and hi contain only real, valid native measurements.
+             * Repaired pixels do not affect automatic palette scaling.
+             */
       mk_lut(lo, hi);
       int n = claim();
       if (n < 0) {
